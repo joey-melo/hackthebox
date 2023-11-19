@@ -4,31 +4,31 @@
 
 Port scan revealed ports 22, 80, and 443 open.
 
-![](01-nmap-scan.png)
+![](screenshots/01-nmap-scan.png)
 
 Connections to HTTP (port 80) redirected to HTTPS (port 443), which revealed the landing page of "Secret Spy Agency".
 
-![](02-landing-page.png)
+![](screenshots/02-landing-page.png)
 
 Running `feroxbuster` revealed several directories, the `guide` one was interesting for this analysis.
 
-![](03-directories-found.png)
+![](screenshots/03-directories-found.png)
 
 On `https://ssa.htb/guide`, it was possible to perform PGP encryption actions, including signature verification.
 
-![](04-guide-page.png)
+![](screenshots/04-guide-page.png)
 
 The `/pgp` endpoint contained a valid hash example for demonstrating the website's "Verify Signature" functionality.
 
-![](05-example-hash.png)
+![](screenshots/05-example-hash.png)
 
 Submitting the public hash along with the sample message resulted in a Signature Verification pop-up with information about the PGP-signed message.
 
-![](06-signature-verification.png)
+![](screenshots/06-signature-verification.png)
 
 Moreover, it was detected that the website used the Flask engine.
 
-![](07-flask.png)
+![](screenshots/07-flask.png)
 
 Since Flask applications are highly susceptible to SSTI vulnerabilities, and the website reflected user input (PGP signature), one exploit hypothesis was to sign a message with a malicious signature and submit it to the website for validation.
 
@@ -44,15 +44,15 @@ In order to sign a PGP-encrypted message, `gpg` was used. The steps to reproduce
 |4. Sign the message with the key|`gpg --clear-sign message.txt`|
 |5. Submit the public key and signed message for signature verification||
 
-![](08-create-regular-message.png)
+![](screenshots/08-create-regular-message.png)
 
-![](09-regular-message-reflected.png)
+![](screenshots/09-regular-message-reflected.png)
 
 Since it was confirmed that the supplied username was reflected in the website's response, it was then verified if template injection was possible. This time, the message was signed by username `{{7*7}}`, which would evaluate to `49` in case there was no sanitization in place.
 
-![](10-evil-message-demo.png)
+![](screenshots/10-evil-message-demo.png)
 
-![](11-evil-message-reflected.png)
+![](screenshots/11-evil-message-reflected.png)
 
 
 Since the template injection was confirmed, the exploit could be automated, and a payload was provided to return a reverse shell.
@@ -84,15 +84,15 @@ rm message.txt.asc
 
 The shell obtained revealed that the user **atlas** was compromised. However, it is important to mention that this was a restricted environment with access to very little functionality and only basic commands allowed.
 
-![](12-initial-shell.png)
+![](screenshots/12-initial-shell.png)
 
 Reading through the files at `/home/atlas`, it was identified that `.config/httpie/sessions/localhost_5000/admin.json` contained the password for another user: **silentobserver**.
 
-![](13-password-found.png)
+![](screenshots/13-password-found.png)
 
 The password was valid, and an SSH session was obtained.
 
-![](14-second-shell.png)
+![](screenshots/14-second-shell.png)
 
 # PRIVILEGE ESCALATION 1 - silentobserver TO atlas
 
@@ -100,25 +100,25 @@ The password was valid, and an SSH session was obtained.
 
 Enumerating the system as **silentobserver**, a couple of folders were identified in the `/opt` directory.
 
-![](15-opt-folder.png)
+![](screenshots/15-opt-folder.png)
 
 Exploring these folders revealed that the application `/opt/tipnet/target/debug/tipnet` had its SUID bit set for the **atlas** user, meaning that executing that application would perform actions under the context of **atlas**.
 
-![](16-tipnet-suid.png)
+![](screenshots/16-tipnet-suid.png)
 
 Moreover, the source code for the application was identified in the same folder.
 
-![](17-src-code.png)
+![](screenshots/17-src-code.png)
 
 Reading through the source code, it was identified that it was a Rust application, and on the first line, it called an external library named `logger`, which was under `crate`. Since the `crates` directory was in the same folder and readable, it was also possible to enumerate it.
 
 It was then discovered that its library file, `lib.rs` was writable by **silentobserver**.
 
-![](18-logger-source.png)
+![](screenshots/18-logger-source.png)
 
 What is more, running `pspy` to identify processes running in real-time in the server, it was noted that **atlas** was executing `tipnet` every minute or so.
 
-![](19-pspy.png)
+![](screenshots/19-pspy.png)
 
 This means that, with write access to `lib.rs`, it was possible to change its contents to execute arbitrary code. Once `tipnet` was executed, the arbitrary code injected in the library would be executed in the context of **atlas**.
 
@@ -144,7 +144,7 @@ pub fn log(user: &str, query: &str, justification: &str) {
 }
 ```
 
-![](20-third-shell.png)
+![](screenshots/20-third-shell.png)
 
 # PRIVILEGE ESCALATION 2 - atlas TO root
 
@@ -158,7 +158,7 @@ Then, looking at the files to which **jailer** had access, it was discovered tha
 
 Furthermore, when checking `firejail` version, it detected version 0.9.68, which is vulnerable to [CVE-2022-31214](https://nvd.nist.gov/vuln/detail/CVE-2022-31214), which has a publicly available exploit leading to privilege escalation.
 
-![](21-firejail-enum.png)
+![](screenshots/21-firejail-enum.png)
 
 ## EXPLOIT 3 - FIREJAIL v0.9.68 PRIVILEGE ESCALATION (CVE-2022-31214)
 
@@ -166,13 +166,13 @@ The exploit for `firejail` was available at https://www.openwall.com/lists/oss-s
 
 However, the exploit's source code required a small alteration on line 74. Since `firejail` was not part of the `$PATH`, it was necessary to change the line to include the full path of `firejail` which was `/usr/local/bin/firejail`.
 
-![](22-exploit-change.png)
+![](screenshots/22-exploit-change.png)
 
 It's important to note that, for this exploit to work, two separate shells were needed.
 
 Then, it was a simple matter of executing the exploit in one shell:
 
-![](23-exploit-shell-1.png)
+![](screenshots/23-exploit-shell-1.png)
 And following the instructions on the second shell:
 
 ```bash
@@ -180,7 +180,7 @@ And following the instructions on the second shell:
 su -
 ```
 
-![](24-exploit-shell-2.png)
+![](screenshots/24-exploit-shell-2.png)
 
 # BEYOND ROOT
 
